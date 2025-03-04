@@ -121,6 +121,8 @@ void IRReceiverLL::handleCommand(uint8_t command) {
             break;
         default:
             Serial.println("Unknown command");
+            // Log the raw data of the unknown command
+            IrReceiver.printIRResultRawFormatted(&Serial, true);
             break;
     }
 }

@@ -7,19 +7,12 @@
 // The HW running this is ESP32-WROOM-32E
 
 /*
-Example sensor_logs.json format:
-{
-  "logs": [
-    {
-      "timestamp": "2021-09-01 12:00:00",
-      "event": "sound_detected"
-    },
-    {
-      "timestamp": "2021-09-01 12:00:01",
-      "event": "radar_detected"
-    }
-  ]
-}
+sensor_logs.txt format:
+date_time: timestamp: event_type: sensor/topic: message
+
+yes... There is both the date:time and timestamp in that. I'm lazy
+and don't want to convert the timestamp to date:time every time I
+want to read the logs. 
 */
 
 // flash file system
@@ -50,7 +43,7 @@ unsigned long lTick = 0;
 #define RADAR_SENSOR_PIN 12  // GPIO12
 //volatile bool soundDetected = false;
 
-#define PATH "/sensor_logs.json"
+#define PATH "/sensor_logs.txt"
 
 IRReceiverLL irReceiver;  // Use default pins: IR pin = GPIO4, LED pin = GPIO2
 
@@ -62,12 +55,15 @@ void setTimeFromTimestamp(const String& timestamp) {
 
 // a function to get the current date and time as a string
 String getDateTimeString() {
-  return String(year()) + "-" + String(month()) + 
-  "-" + String(day()) + " " + String(hour()) + ":" + 
-   String(minute()) + ":" + String(second());
+  char buffer[20];
+  sprintf(buffer, "%04d-%02d-%02d %02d:%02d:%02d", year(), month(), day(), hour(), minute(), second());
+  return String(buffer);
 }
 
-void openJSON() {
+// deprecated! Use just strings in the log!
+// timestamp: event_type: topic: message (or something)
+/*void openJSON() {
+
   // Seek to the end of the file
   file.seek(file.size() - 1);
 
@@ -85,11 +81,13 @@ void openJSON() {
   // Now the file pointer is at the position just before the closing bracket
   // Write a comma to separate the new entry
   file.print(",");
-}
+}*/
 
-void appendToJsonFile(const char* event) {
-  // Append the new JSON entry
-  file.println("{");
+void addEventToLog(const char* event) {
+if (!file) {
+    Serial.println("+file_not_open");
+    return;
+  }
   file.println("\"timestamp\": \"" + getDateTimeString() + "\",");
   file.println("\"event\": \"" + String(event) + "\"");
   file.print("}");
@@ -100,10 +98,10 @@ void IRAM_ATTR soundISR() {
   
   if (millis() - lastSound > 200) {  // 200ms debounce time
     if (serialOn) {
-      Serial.println("!sound_detected");
+      Serial.println("#sound");
     }
     if (flashOn && file) {
-      appendToJsonFile("sound");
+      addEventToLog("sound");
     }
     lastSound = millis();
   }
@@ -117,7 +115,7 @@ void IRAM_ATTR radarISR() {
       Serial.println("!radar_detected");
     }
     if (flashOn && file) {
-      appendToJsonFile("radar");
+      addEventToLog("radar");
     }
     lastRadar = millis();
   }

@@ -13,6 +13,7 @@ private:
     uint8_t _irPin;
     uint8_t _ledPin;
     void handleCommand(uint8_t command);
+    void handleUnknownRAWMessage();
 };
 
 #endif // IRRECEIVER_H
