@@ -24,11 +24,10 @@ Status legend: ✅ done · 🔶 ready/blocked · ⬜ open
   works and the lidar stops being ambiguous). ✅ ESP32 moved to a direct Pi port (1-1.2). Tooling
   staged: `./setup.sh cp210x` + pyusb/hexdump; full procedure (backup → write → verify → udev)
   in SETUP.md. Owner runs the sudo steps. Not blocking rung 2.
-- ⬜ **NEW PROMPT idea (owner, S66): centralized serial/device-lease manager.** boardd owns the
-  board serial only; the lidar (and now the Sentinel) are opened ad-hoc by the dashboard —
-  no central authority, which is exactly why the dashboard grabbed the ESP32. Generalize
-  boardd or add a sibling that owns every tty, resolves stable names, leases them out. Its own
-  prompt (touches safety-critical boardd) — Claude to draft on request.
+- ⬜ **Centralized device-lease manager → written up as rosbottiNG prompt 16** (S66):
+  `docs/prompts/16_device_manager.md` — generalize the boardd broker to own every serial device
+  (stable name + exclusive lease + presence), boardd left untouched. Spec-first, owner-gated,
+  D4 rigor. The Sentinel bridge (prompt 14 Phase C) becomes its first new consumer.
 - ⬜ **GREENFIELD (owner, S66): the real firmware is written from scratch — the old `src/`
   sketch goes in the bin, not preserved.** The proper iterated plan = the Phase B spec, written
   with the owner (hands-off-code). Old `src/`, `include/`, root `platformio.ini` kept only for
