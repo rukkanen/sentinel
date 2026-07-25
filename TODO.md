@@ -19,11 +19,9 @@ Status legend: ✅ done · 🔶 ready/blocked · ⬜ open
   file = best for clean Claude-led hands-off spec→RED→GREEN); pinned venv is the authoritative
   core, VS Code extension optional. Framework (Arduino vs ESP-IDF, both under pio) still deferred
   to the Phase B spec — see SETUP.md + rosbottiNG prompt 14 §0f Resolution.
-- 🔶 **Collision permanent fix — STAGED, owner to run (S66).** Chosen: reprogram the CP2102 serial
-  to `sentinel_module` (location-independent; a normal `/dev/sentinel_mcu` by-id udev rule then
-  works and the lidar stops being ambiguous). ✅ ESP32 moved to a direct Pi port (1-1.2). Tooling
-  staged: `./setup.sh cp210x` + pyusb/hexdump; full procedure (backup → write → verify → udev)
-  in SETUP.md. Owner runs the sudo steps. Not blocking rung 2.
+- ✅ **Collision permanent fix — DONE (S68, owner ran it).** CP2102 serial `0001` →
+  `sentinel_module`; by-id now unique, `devicemgr` resolves cleanly, lidar no longer ambiguous.
+  EEPROM backup at `~/sentinel.eeprom-backup.hex`. `/dev/sentinel_mcu` udev rule now optional.
 - ⬜ **Centralized device-lease manager → written up as rosbottiNG prompt 16** (S66):
   `docs/prompts/16_device_manager.md` — generalize the boardd broker to own every serial device
   (stable name + exclusive lease + presence), boardd left untouched. Spec-first, owner-gated,

@@ -13,7 +13,7 @@ stays stdlib + Flask + pyserial + numpy.
 | chip | **ESP32-D0WD, revision v1.0** (classic WROOM-32 silicon; Wi-Fi + BT, dual-core, 240 MHz) |
 | MAC | **`4c:11:ae:66:5f:c4`** (stable identity, but only visible via esptool — not to udev) |
 | flash | 4 MB, 3.3 V |
-| USB bridge | **CP2102** (`10c4:ea60`), USB serial **`0001`** |
+| USB bridge | **CP2102** (`10c4:ea60`), USB serial **`sentinel_module`** (reprogrammed S68 2026-07-25; was `0001`) |
 
 ⚠️ **The USB bridge COLLIDES with the LD19 lidar** — same VID:PID (`10c4:ea60`) *and* same serial
 (`0001`). Consequences, all real:
@@ -96,7 +96,16 @@ udev rule lands) precisely so a portless `pio run -t upload` fails safe instead 
 Always pass the positively-identified by-id path; `tools/find_sentinel.py` refuses the two
 known devices by name.
 
-## Fixing the lidar collision: reprogram the CP2102 serial → `sentinel_module` (OWNER-RUN)
+## Fixing the lidar collision: reprogram the CP2102 serial → `sentinel_module` ✅ DONE (S68)
+
+> **✅ DONE 2026-07-25 (S68).** The reprogram succeeded — serial is now `sentinel_module`
+> (verified: kernel `device firmware changed` → re-enumerated with `SerialNumber: sentinel_module`;
+> `/dev/serial/by-id/…_sentinel_module-if00-port0`; `udevadm ID_SERIAL_SHORT=sentinel_module`).
+> ⚠️ The write tool prints a scary tail — `[Errno 2] Entity not found` then a `__del__`
+> `USBError: No such device` — that is **cleanup AFTER success**: `--reset-device` re-enumerates
+> the chip with its new identity, so the tool's kernel-driver re-attach hits a stale handle. The
+> EEPROM backup is at `~/sentinel.eeprom-backup.hex` (restore with `--write-cp210x -F <file>`).
+> The steps below are kept as the record / for a second board.
 
 The Sentinel's CP2102 ships with serial `0001` — identical to the LD19 lidar (see the board
 identity table above), so udev/by-id can't tell them apart. The clean, location-independent fix
@@ -161,5 +170,11 @@ manager is a separate proposed prompt. Until then, `/dev/sentinel_mcu` + this ru
   clean on the Pi 4 in 240 s (RAM 6.6 %, flash 20.6 %).
 - **2026-07-25 (S66):** `pip install pyusb hexdump` added to the venv (reprogram-tool deps; no
   apt — libusb-1.0 runtime already on the OS). `setup.sh cp210x` fetches VCTLabs/cp210x-program
-  @ 927ed26 to `vendor/`. The CP2102 serial reprogram + `/dev/sentinel_mcu` udev rule are
-  **staged but NOT yet run** (owner runs the sudo steps above).
+  @ 927ed26 to `vendor/`.
+- **2026-07-25 (S68):** owner ran the reprogram — **CP2102 serial `0001` → `sentinel_module`, DONE**
+  (see the collision section above). Invocation fix committed (`7a2d4fa`): the tool's
+  `cp210x-program` is a symlink into `scripts/`, so it needs `cd vendor/cp210x-program &&
+  sudo env PYTHONPATH="$PWD" …`. EEPROM backup saved to `~/sentinel.eeprom-backup.hex`.
+  **The `/dev/sentinel_mcu` udev rule is now OPTIONAL** — the by-id is already unique
+  (`…_sentinel_module…`) and `devicemgr` resolves by serial/port; add the symlink only if a short
+  stable path is wanted.
