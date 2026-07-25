@@ -118,15 +118,21 @@ lsusb | grep 10c4:ea60                          # note Bus/Device, e.g. "Bus 001
 Ideally do this while the lidar is off-bus (only ONE `10c4:ea60` present) — zero chance of hitting
 the wrong chip. The `-m <bus>/<dev>` selector below targets that exact device regardless.
 
+⚠️ The tool's `cp210x-program` is a **symlink into `scripts/`**, so plain `python
+vendor/…/cp210x-program` puts `scripts/` on `sys.path` and can't import its own `cp210x`
+package (`ModuleNotFoundError: No module named 'cp210x'`). Run it from the tool dir with the
+repo root on `PYTHONPATH` — hence the `cd` + `sudo env PYTHONPATH="$PWD"` form below.
+
 **2. Back up the whole EEPROM first** (restore path if anything goes wrong — your only board):
 ```
-sudo ~/.venvs/sentinel/bin/python vendor/cp210x-program/cp210x-program \
-     --read-cp210x -m <bus>/<dev> -f sentinel.eeprom-backup.hex
+cd ~/git/sentinel/vendor/cp210x-program
+sudo env PYTHONPATH="$PWD" ~/.venvs/sentinel/bin/python cp210x-program \
+     --read-cp210x -m <bus>/<dev> -f ~/sentinel.eeprom-backup.hex
 ```
 
 **3. Write the new serial + reset so it re-enumerates:**
 ```
-sudo ~/.venvs/sentinel/bin/python vendor/cp210x-program/cp210x-program \
+sudo env PYTHONPATH="$PWD" ~/.venvs/sentinel/bin/python cp210x-program \
      --write-cp210x -m <bus>/<dev> --set-serial-number sentinel_module --reset-device
 ```
 

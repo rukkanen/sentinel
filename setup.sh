@@ -40,7 +40,11 @@ if [ "${1:-}" = "cp210x" ]; then
     mv "$tmp/cp210x-program-${CP210X_SHA}" "$VENDOR/cp210x-program"
     rm -rf "$tmp"
   fi
-  echo "cp210x-program ready: $VENDOR/cp210x-program (run the reprogram per SETUP.md, needs sudo)"
+  # NB: the tool's cp210x-program is a symlink into scripts/, so it must run with the repo root
+  # on PYTHONPATH or `import cp210x` fails. SETUP.md documents the exact sudo invocation.
+  echo "cp210x-program ready: $VENDOR/cp210x-program"
+  echo "  reprogram (needs sudo; see SETUP.md): cd $VENDOR/cp210x-program && \\"
+  echo "    sudo env PYTHONPATH=\"\$PWD\" $VENV/bin/python cp210x-program --write-cp210x -m <bus>/<dev> --set-serial-number sentinel_module --reset-device"
 else
   echo "note: to fetch the CP210x reprogram tool, run: ./setup.sh cp210x"
 fi
