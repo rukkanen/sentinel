@@ -18,7 +18,7 @@ stays stdlib + Flask + pyserial + numpy.
 |---|---|---|---|
 | venv | `~/.venvs/sentinel` | Python 3.12.3 | isolate dev tools from system + yahboom-tools |
 | esptool | in venv | **5.3.1** (binary `esptool`; `esptool.py` is the deprecated alias) | rung-0 board prover (`chip-id`/`read-mac`/`flash-id`), flasher of last resort |
-| PlatformIO Core | in venv | **6.1.19** | the chosen toolchain (§0e rung 1): hosts Arduino now, ESP-IDF later |
+| PlatformIO Core | in venv | **6.1.19** | the **demo** build tool (§0e rung 1); whether it stays the real-firmware tool is the §0f open decision — see below |
 | pyserial | in venv | 3.5 (esptool dep) | Pi-side reader scripts |
 | espressif32 platform | pio-managed (`~/.platformio`, ~1.5 GB) | **7.0.1** (pinned in demo/platformio.ini; pulls framework-arduinoespressif32 3.20017 + toolchain-xtensa-esp32 8.4.0+2021r2-patch5) | ESP32 Arduino core + xtensa toolchain |
 
@@ -28,6 +28,28 @@ Exact install command (what `setup.sh` replays):
 python3 -m venv ~/.venvs/sentinel
 ~/.venvs/sentinel/bin/pip install "esptool==5.3.1" "platformio==6.1.19"
 ```
+
+### ⚠️ TWO pio Cores exist — which one is truth? (OPEN decision, prompt 14 §0f)
+
+There are **two PlatformIO Core installs** and it matters:
+1. **the pinned venv** `~/.venvs/sentinel/bin/pio` (this file, 6.1.19) — the reproducible one.
+2. **the VS Code PlatformIO IDE extension's bundled core**, `~/.platformio/penv/bin/pio`
+   (extension `platformio.platformio-ide-3.3.4`, 6.1.19 *today*, but it auto-updates itself).
+
+They **share** the data dir `~/.platformio/` (platforms/frameworks/toolchains, ~1.6 GB), so the
+*libs* are not duplicated — only the core `pio` executable is. **Risk:** the two cores drift in
+version (the extension bumps itself; the venv stays pinned) and then the VS Code **Build** button
+and this file's `pio` are different programs → non-reproducible builds. **The VS Code extension is
+optional** — no rung needs it; `esptool` alone does rung 0, `pio` + platform does rungs 1–2.
+
+**Not yet decided (owner gate, §0f):** make the venv authoritative and point the extension at it
+(`"platformio-ide.useBuiltinPIOCore": false`, `"platformio-ide.customPyPath":
+"~/.venvs/sentinel/bin/python"`), **or** drop the venv and let the extension own the core. Until
+decided, **use the venv `pio` for anything that must be reproducible** and treat the plugin as a
+convenience only. Record the resolution here when the owner picks.
+
+Also open (§0f): whether PlatformIO stays the build tool at all, or the real firmware is built with
+**ESP-IDF-native** / **arduino-cli** — coupled to the Phase B Arduino-vs-IDF framework choice.
 
 ## Building + flashing the rung-1 demo
 

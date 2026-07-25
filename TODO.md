@@ -13,6 +13,11 @@ Status legend: ✅ done · 🔶 ready/blocked · ⬜ open
 - 🔶 **Rung 1 — flash → boot → talk.** Demo firmware written (`demo/`: blink + banner +
   echo) and toolchain stood up (SETUP.md); flash + `tools/read_demo.py` the moment rung 0
   passes.
+- ⬜ **§0f — toolchain finding-out + owner gate** (owner-requested 2026-07-25). Part 1: install
+  audit — TWO pio Cores exist (pinned venv vs the VS Code extension's `~/.platformio/penv`,
+  sharing one lib dir); pick which is truth (see SETUP.md). Part 2: is PlatformIO still the right
+  build tool, or build the bins with ESP-IDF-native / arduino-cli? Coupled to the Phase B
+  Arduino-vs-IDF choice; recommendation → owner gate before Phase C.
 - ⬜ **Rung 2 — one sensor, one framed event** (radar GPIO12 or sound GPIO14; SENT-LINK seed
   frame: prefix+seq+payload+CRC).
 - ⬜ **Phase B — `sentinel_spec.md` + OWNER GATE** (do not implement past the demo until the
