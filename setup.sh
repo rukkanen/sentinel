@@ -28,6 +28,10 @@ python3 -c 'import venv' 2>/dev/null || { echo "need python3-venv (sudo apt inst
 # dialout group is needed to open /dev/ttyUSB* — apt/usermod are owner-run steps.
 id -nG | grep -qw dialout || echo "WARNING: $USER not in dialout — run: sudo usermod -aG dialout $USER (then re-login)"
 
+# Host C++ compiler for the PlatformIO `native` unit tests (firmware/ Phase C, spec SENT-160).
+# pio bundles the ESP32 (xtensa) toolchain but host tests use the SYSTEM compiler.
+command -v g++ >/dev/null || echo "NOTE: no host C++ compiler — for 'pio test -e native' run: sudo apt install build-essential"
+
 # --- optional: fetch the CP210x reprogram tool (only when asked; needs network) ----------
 if [ "${1:-}" = "cp210x" ]; then
   mkdir -p "$VENDOR"
