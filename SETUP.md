@@ -63,14 +63,18 @@ version (the extension bumps itself; the venv stays pinned) and then the VS Code
 and this file's `pio` are different programs → non-reproducible builds. **The VS Code extension is
 optional** — no rung needs it; `esptool` alone does rung 0, `pio` + platform does rungs 1–2.
 
-**Not yet decided (owner gate, §0f):** make the venv authoritative and point the extension at it
+**RESOLVED (S66, owner asked Claude to choose): the pinned venv `~/.venvs/sentinel` is the ONE
+authoritative core.** Use `~/.venvs/sentinel/bin/pio` for everything that must be reproducible.
+The VS Code PlatformIO extension is **optional** (no rung needs it) — if kept, point it at the venv
 (`"platformio-ide.useBuiltinPIOCore": false`, `"platformio-ide.customPyPath":
-"~/.venvs/sentinel/bin/python"`), **or** drop the venv and let the extension own the core. Until
-decided, **use the venv `pio` for anything that must be reproducible** and treat the plugin as a
-convenience only. Record the resolution here when the owner picks.
+"~/.venvs/sentinel/bin/python"`) so the Build button == the CLI; otherwise ignore or remove it.
 
-Also open (§0f): whether PlatformIO stays the build tool at all, or the real firmware is built with
-**ESP-IDF-native** / **arduino-cli** — coupled to the Phase B Arduino-vs-IDF framework choice.
+**RESOLVED (S66): PlatformIO stays the build/test/flash tool** — chosen for clean, Claude-led,
+hands-off, spec→RED→GREEN dev because one tool gives a host `native` test env + cross-build + flash
+from one pinned file (rosbottiNG prompt 14 §0f Resolution). The **framework** (Arduino vs ESP-IDF,
+both under pio) is the one piece still deferred to the Phase B spec; pio's Arduino core is 2.0.17 →
+IDF 4.4-era (has every robustness lever; currency, not capability). Lean: Arduino-under-pio to
+start, portable logic host-tested, escalate to `framework=espidf` only if a lever demands it.
 
 ## Building + flashing the rung-1 demo
 

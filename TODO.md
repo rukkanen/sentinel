@@ -14,11 +14,19 @@ Status legend: ✅ done · 🔶 ready/blocked · ⬜ open
 - 🔶 **Rung 1 — flash → boot → talk.** Demo firmware written (`demo/`: blink + banner +
   echo) and toolchain stood up (SETUP.md); flash + `tools/read_demo.py` the moment rung 0
   passes.
-- ⬜ **§0f — toolchain finding-out + owner gate** (owner-requested 2026-07-25). Part 1: install
-  audit — TWO pio Cores exist (pinned venv vs the VS Code extension's `~/.platformio/penv`,
-  sharing one lib dir); pick which is truth (see SETUP.md). Part 2: is PlatformIO still the right
-  build tool, or build the bins with ESP-IDF-native / arduino-cli? Coupled to the Phase B
-  Arduino-vs-IDF choice; recommendation → owner gate before Phase C.
+- ✅ **§0f — toolchain finding-out (S66, owner asked Claude to choose).** RESOLVED: PlatformIO
+  stays as build/test/flash tool (host `native` test env + cross-build + flash from one pinned
+  file = best for clean Claude-led hands-off spec→RED→GREEN); pinned venv is the authoritative
+  core, VS Code extension optional. Framework (Arduino vs ESP-IDF, both under pio) still deferred
+  to the Phase B spec — see SETUP.md + rosbottiNG prompt 14 §0f Resolution.
+- ⬜ **Collision permanent fix (choose):** reprogram the ESP32's CP2102 USB serial to a unique
+  string (cleanest — a normal `/dev/sentinel_mcu` by-id udev rule then works and the lidar stops
+  being ambiguous) **vs** a port-based udev rule. Plus: move the ESP32 off the flaky Realtek hub
+  onto a direct Pi port. Not blocking rung 2. (udev apply + serial write = ask-first.)
+- ⬜ **GREENFIELD (owner, S66): the real firmware is written from scratch — the old `src/`
+  sketch goes in the bin, not preserved.** The proper iterated plan = the Phase B spec, written
+  with the owner (hands-off-code). Old `src/`, `include/`, root `platformio.ini` kept only for
+  git history until Phase C starts, then removed.
 - ⬜ **Rung 2 — one sensor, one framed event** (radar GPIO12 or sound GPIO14; SENT-LINK seed
   frame: prefix+seq+payload+CRC).
 - ⬜ **Phase B — `sentinel_spec.md` + OWNER GATE** (do not implement past the demo until the
