@@ -6,6 +6,27 @@ copy-paste, not archaeology. `setup.sh` is the executable form; this file is the
 These are **dev-host tools, NOT rosbottiNG runtime deps** — the robot's runtime surface
 stays stdlib + Flask + pyserial + numpy.
 
+## The board — verified identity (2026-07-25, S66, rungs 0+1 GREEN)
+
+| fact | value |
+|---|---|
+| chip | **ESP32-D0WD, revision v1.0** (classic WROOM-32 silicon; Wi-Fi + BT, dual-core, 240 MHz) |
+| MAC | **`4c:11:ae:66:5f:c4`** (stable identity, but only visible via esptool — not to udev) |
+| flash | 4 MB, 3.3 V |
+| USB bridge | **CP2102** (`10c4:ea60`), USB serial **`0001`** |
+
+⚠️ **The USB bridge COLLIDES with the LD19 lidar** — same VID:PID (`10c4:ea60`) *and* same serial
+(`0001`). Consequences, all real:
+- `tools/find_sentinel.py`'s by-id filter can't distinguish them (the `..._0001-if00-port0` symlink
+  collides — only one exists). Identify the Sentinel by **physical USB port** instead. On rosbotti
+  this session it was physical port `1-1.1.3` → `/dev/ttyUSB1`, stable by-path
+  `/dev/serial/by-path/platform-fd500000.pcie-pci-0000:01:00.0-usb-0:1.1.3:1.0-port0`. **ttyUSB
+  numbering is NOT stable across reboots** (two serial-0001 devices race) — always re-confirm with
+  `esptool … chip-id` before flashing, and flash via the **by-path** symlink, never a bare tty.
+- For Phase C the `/dev/sentinel_mcu` udev rule **must key on the physical port** (`KERNELS==`), or
+  the ESP32's CP2102 serial must be reprogrammed unique (e.g. `cp210x-cfg`). A VID:PID/serial rule
+  cannot work. Likewise the rosbotti `selftest/manifest.json` entry can't key on by_id.
+
 ## Host
 
 - Raspberry Pi 4, Ubuntu 24.04 (host `rosbotti`), Python 3.12.3 (system).

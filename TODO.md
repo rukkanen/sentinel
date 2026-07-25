@@ -2,14 +2,15 @@
 
 Status legend: ✅ done · 🔶 ready/blocked · ⬜ open
 
-- 🔶 **Rung 0 — aliveness. DO IT ON THE DELL (lapadel)** — runbook = rosbottiNG
-  `docs/prompts/14_sentinel_bringup.md` §0e (2026-07-25; the standalone prompt 15 was folded
-  back into 14). On rosbotti the WROOM never enumerated across ALL logged boots (S64 + S65:
-  two different MCUs, zero kernel USB events; solid red power LED = VBUS ok, no data →
-  charge-only cable / dead hub port suspected; the robot's powered-hub cascade is hard-down
-  and survives reboot). On the Dell: `./setup.sh`, then direct port + known-data cable →
-  `tools/find_sentinel.py --watch` → `esptool chip-id` decides board-alive vs dead; record
-  VID:PID / by-id / serial / MAC for the eventual udev rule + rosbotti selftest manifest.
+- ✅ **Rung 0 — aliveness. GREEN (2026-07-25, S66, on rosbotti).** The S65 blocker was the
+  cable (charge-only) + a powered hub mid-power-loss, not the board. With a data cable the
+  ESP32 enumerated. `esptool chip-id` synced: **ESP32-D0WD rev v1.0, MAC 4c:11:ae:66:5f:c4,
+  4 MB flash**. It's a **CP2102 board that collides with the lidar** (VID:PID + serial 0001) —
+  identify by physical port, see SETUP.md.
+- ✅ **Rung 1 — flash → boot → talk. GREEN (S66).** `pio run -t upload` (via by-path
+  `…usb-0:1.1.3:1.0-port0`) flashed `demo/`; `tools/read_demo.py` verified banner + echo.
+- ⬜ **Fix `tools/find_sentinel.py`** — it missed the ESP32 (by-id collision). Make it
+  enumerate raw ttyUSB via sysfs and flag CP2102 collisions by physical port + holder.
 - 🔶 **Rung 1 — flash → boot → talk.** Demo firmware written (`demo/`: blink + banner +
   echo) and toolchain stood up (SETUP.md); flash + `tools/read_demo.py` the moment rung 0
   passes.
