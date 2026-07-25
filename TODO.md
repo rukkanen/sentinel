@@ -2,12 +2,13 @@
 
 Status legend: ✅ done · 🔶 ready/blocked · ⬜ open
 
-- 🔶 **Rung 0 — aliveness.** BLOCKED ON HARDWARE: the WROOM has never enumerated on the Pi
-  (S64 + S65: no new serial device at any point, even with the Realtek cascade up — see
-  rosbottiNG diary S65). Owner: check power LED, swap to a known-data USB cable, try a
-  direct Pi port; is it a dev board (onboard USB-UART) or a bare module (needs an external
-  adapter)? Once ANY new tty appears: `tools/find_sentinel.py` → `esptool chip-id` decides
-  board-alive vs dead.
+- 🔶 **Rung 0 — aliveness. HANDED TO THE DELL (lapadel)** — rosbottiNG
+  `docs/prompts/15_sentinel_dell_rung0.md` is the runbook (2026-07-25). On rosbotti the
+  WROOM never enumerated across ALL logged boots (S64 + S65: two different MCUs, zero
+  kernel USB events; solid red power LED = VBUS ok, no data → charge-only cable / dead hub
+  port suspected; the robot's powered-hub cascade is hard-down and survives reboot). On the
+  Dell: direct port + known-data cable → `tools/find_sentinel.py --watch` →
+  `esptool chip-id` decides board-alive vs dead; record VID:PID / by-id / serial / MAC.
 - 🔶 **Rung 1 — flash → boot → talk.** Demo firmware written (`demo/`: blink + banner +
   echo) and toolchain stood up (SETUP.md); flash + `tools/read_demo.py` the moment rung 0
   passes.
