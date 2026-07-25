@@ -96,18 +96,55 @@ udev rule lands) precisely so a portless `pio run -t upload` fails safe instead 
 Always pass the positively-identified by-id path; `tools/find_sentinel.py` refuses the two
 known devices by name.
 
-## Proposed udev rule (NOT applied — udev apply is an ask-first gate)
+## Fixing the lidar collision: reprogram the CP2102 serial → `sentinel_module` (OWNER-RUN)
 
-Once the Sentinel's bridge chip + serial are known (rung 0), give it a stable name so it
-never races the lidar for ttyUSB numbering. Template (fill from `udevadm info` on the real
-device; match on serial, not just VID:PID — a CP2102-based board would collide with the lidar):
+The Sentinel's CP2102 ships with serial `0001` — identical to the LD19 lidar (see the board
+identity table above), so udev/by-id can't tell them apart. The clean, location-independent fix
+(owner-chosen, S66) is to give the ESP32's bridge a **unique serial**, then a normal by-id udev
+rule works and the lidar stops being ambiguous. All steps below need `sudo` (privileged USB /
+udev) and are **owner-run** — Claude prepares, the owner executes.
 
+**0. Tools** (once): `./setup.sh cp210x` — installs `pyusb`+`hexdump` in the venv and fetches the
+pinned reprogram tool to `vendor/cp210x-program` (VCTLabs/cp210x-program @ 927ed26, AN721, LGPL).
+
+**1. Free the port + confirm the target.** Nothing may hold the ESP32's tty during the write —
+stop whatever has it (the dashboard `app.py` grabs it via the colliding by-id when the lidar is
+absent). Then positively confirm it's the Sentinel, not the lidar:
+```
+python3 tools/find_sentinel.py                 # picks the ESP32; note its /dev/ttyUSBn + phys-port
+lsusb | grep 10c4:ea60                          # note Bus/Device, e.g. "Bus 001 Device 019"
+~/.venvs/sentinel/bin/esptool --port <by-path> chip-id   # MUST report MAC 4c:11:ae:66:5f:c4
+```
+Ideally do this while the lidar is off-bus (only ONE `10c4:ea60` present) — zero chance of hitting
+the wrong chip. The `-m <bus>/<dev>` selector below targets that exact device regardless.
+
+**2. Back up the whole EEPROM first** (restore path if anything goes wrong — your only board):
+```
+sudo ~/.venvs/sentinel/bin/python vendor/cp210x-program/cp210x-program \
+     --read-cp210x -m <bus>/<dev> -f sentinel.eeprom-backup.hex
+```
+
+**3. Write the new serial + reset so it re-enumerates:**
+```
+sudo ~/.venvs/sentinel/bin/python vendor/cp210x-program/cp210x-program \
+     --write-cp210x -m <bus>/<dev> --set-serial-number sentinel_module --reset-device
+```
+
+**4. Verify** (replug if needed): `ls -l /dev/serial/by-id/` now shows
+`…CP2102…_sentinel_module-if00-port0`, and `tools/find_sentinel.py` names it by a unique serial.
+(Restore from the backup with `--write-cp210x -F sentinel.eeprom-backup.hex` if ever needed.)
+
+## udev rule → `/dev/sentinel_mcu` (OWNER-RUN, after step 4)
+
+With a unique serial the rule keys on `serial` cleanly (won't match the lidar's `0001`):
 ```
 # /etc/udev/rules.d/99-sentinel.rules
-SUBSYSTEM=="tty", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="XXXX", ATTRS{serial}=="XXXX", SYMLINK+="sentinel_mcu"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="sentinel_module", SYMLINK+="sentinel_mcu"
 ```
-
-Then: `sudo udevadm control --reload-rules && sudo udevadm trigger` (owner-run).
+Then: `sudo udevadm control --reload-rules && sudo udevadm trigger`. After this, flash/monitor via
+the stable `/dev/sentinel_mcu`. (Bigger picture: there is no central serial-lease manager for
+non-board devices — the lidar/Sentinel are opened ad-hoc by the dashboard; a unified device
+manager is a separate proposed prompt. Until then, `/dev/sentinel_mcu` + this rule is the fix.)
 
 ## Install log (append-only)
 
@@ -116,3 +153,7 @@ Then: `sudo udevadm control --reload-rules && sudo udevadm trigger` (owner-run).
   full freeze reproducible from the two pins). No sudo, no apt, no udev applied.
   First `pio run` of `demo/` downloaded espressif32 7.0.1 into `~/.platformio/` and built
   clean on the Pi 4 in 240 s (RAM 6.6 %, flash 20.6 %).
+- **2026-07-25 (S66):** `pip install pyusb hexdump` added to the venv (reprogram-tool deps; no
+  apt — libusb-1.0 runtime already on the OS). `setup.sh cp210x` fetches VCTLabs/cp210x-program
+  @ 927ed26 to `vendor/`. The CP2102 serial reprogram + `/dev/sentinel_mcu` udev rule are
+  **staged but NOT yet run** (owner runs the sudo steps above).

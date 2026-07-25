@@ -19,10 +19,16 @@ Status legend: ✅ done · 🔶 ready/blocked · ⬜ open
   file = best for clean Claude-led hands-off spec→RED→GREEN); pinned venv is the authoritative
   core, VS Code extension optional. Framework (Arduino vs ESP-IDF, both under pio) still deferred
   to the Phase B spec — see SETUP.md + rosbottiNG prompt 14 §0f Resolution.
-- ⬜ **Collision permanent fix (choose):** reprogram the ESP32's CP2102 USB serial to a unique
-  string (cleanest — a normal `/dev/sentinel_mcu` by-id udev rule then works and the lidar stops
-  being ambiguous) **vs** a port-based udev rule. Plus: move the ESP32 off the flaky Realtek hub
-  onto a direct Pi port. Not blocking rung 2. (udev apply + serial write = ask-first.)
+- 🔶 **Collision permanent fix — STAGED, owner to run (S66).** Chosen: reprogram the CP2102 serial
+  to `sentinel_module` (location-independent; a normal `/dev/sentinel_mcu` by-id udev rule then
+  works and the lidar stops being ambiguous). ✅ ESP32 moved to a direct Pi port (1-1.2). Tooling
+  staged: `./setup.sh cp210x` + pyusb/hexdump; full procedure (backup → write → verify → udev)
+  in SETUP.md. Owner runs the sudo steps. Not blocking rung 2.
+- ⬜ **NEW PROMPT idea (owner, S66): centralized serial/device-lease manager.** boardd owns the
+  board serial only; the lidar (and now the Sentinel) are opened ad-hoc by the dashboard —
+  no central authority, which is exactly why the dashboard grabbed the ESP32. Generalize
+  boardd or add a sibling that owns every tty, resolves stable names, leases them out. Its own
+  prompt (touches safety-critical boardd) — Claude to draft on request.
 - ⬜ **GREENFIELD (owner, S66): the real firmware is written from scratch — the old `src/`
   sketch goes in the bin, not preserved.** The proper iterated plan = the Phase B spec, written
   with the owner (hands-off-code). Old `src/`, `include/`, root `platformio.ini` kept only for
