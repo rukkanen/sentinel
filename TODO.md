@@ -11,6 +11,13 @@ Status legend: ✅ done · 🔶 ready/blocked · ⬜ open
   `…usb-0:1.1.3:1.0-port0`) flashed `demo/`; `tools/read_demo.py` verified banner + echo.
 - ⬜ **Fix `tools/find_sentinel.py`** — it missed the ESP32 (by-id collision). Make it
   enumerate raw ttyUSB via sysfs and flag CP2102 collisions by physical port + holder.
+- 📌 **Pin map LOCKED (S68, wiring guide):** mic A0→GPIO32 · radar OUT→GPIO27 · IR→GPIO4 ·
+  heartbeat LED→GPIO2. Firmware `firmware/include/pins.h`. Owner rewiring the breadboard to match.
+- ⬜ **Phase C unit 3 — curator** (analyse: mic loudness/rolling stats + radar debounce/dedup;
+  store: bounded ring + NVS flush). Folds in rung-2's mic-envelope logic, host-tested.
+- ⬜ **Phase C unit — IR control surface**: decode NEC (IRremote), map buttons
+  (explore/map/STOP/…) → advisory SENT-LINK command requests; Pi bridge executes via gated paths.
+  IR is NOT an ESTOP path (advisory only — spec D-S7 safety line).
 - 🔶 **Rung 1 — flash → boot → talk.** Demo firmware written (`demo/`: blink + banner +
   echo) and toolchain stood up (SETUP.md); flash + `tools/read_demo.py` the moment rung 0
   passes.
