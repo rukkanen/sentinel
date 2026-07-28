@@ -1,17 +1,17 @@
-// SENTINEL rung-2 — the actually-wired sensor: the MIC, listened to properly (Tier A).
-// The mic's digital threshold (hardware pot) is finicky (owner S68: "constantly sending,
-// or nothing unless I hit it"), so we IGNORE the pot and use the ANALOG envelope on
-// GPIO32 (found by the S68 pin scan — biased ~182..670, swings with sound): sample fast,
-// take peak-to-peak = loudness, auto-baseline the ambient, and fire loud-events in
-// SOFTWARE. This is exactly sentinel_module_spec Tier-A listening (SENT-045) and it
-// makes the pot irrelevant. Frames are the SENT-LINK seed: <ver><type><seq>|json|crc16.
-//   (Radar GPIO12 is v1-planned but NOT wired yet — S68 scan saw no digital activity.)
+// SENTINEL sensor-check (rung 2, updated S68) — verify ALL THREE sensors + wiring live.
+//   mic A0  -> GPIO32  : analog envelope -> software loudness + "loud" events (Tier A)
+//   radar   -> GPIO27  : RCWL-0516 motion, HIGH on movement (debounced)
+//   IR      -> GPIO4   : VS1838B NEC decode -> button-code events
+//   LED     -> GPIO2   : heartbeat, one short flash every 5 s
+// Frames are the SENT-LINK seed: <ver><type><seq>|<json>|<crc16>. Read it with
+//   ~/.venvs/sentinel/bin/python tools/read_rung2.py <by-id>
+// This is a bring-up check, not the real firmware (that's firmware/, host-tested).
 #include <Arduino.h>
+#define DECODE_NEC
+#include <IRremote.hpp>
 
-static const int MIC = 32;         // mic analog envelope (AO) — verify; S68 scan → GPIO32
-static const int LED = 2;
-static const uint32_t WIN_MS   = 50;    // loudness integration window
-static const uint32_t TELEM_MS = 500;   // telemetry cadence
+static const int MIC = 32, RADAR = 27, IR = 4, LED = 2;
+static const uint32_t WIN_MS = 50, TELEM_MS = 500, DEBOUNCE_MS = 25;
 
 static uint32_t seq = 0;
 
@@ -31,48 +31,63 @@ static void emit(char type, const String &json) {
   Serial.print(head); Serial.print('|'); Serial.println(crc);
 }
 
-static float baseline = 0;     // EMA of ambient loudness
-static bool loud = false;
-static uint32_t loudCount = 0, tTelem = 0;
+static float baseline = 0;
+static bool loud = false, lastRadar = false;
+static uint32_t loudCount = 0, motionCount = 0, tTelem = 0, tRadar = 0;
+static uint32_t tBlink = 0, ledOffAt = 0; static bool ledOn = false;
 
 void setup() {
+  pinMode(RADAR, INPUT);
   pinMode(LED, OUTPUT);
   analogReadResolution(12);
   Serial.begin(115200);
   delay(50);
-  emit('D', "{\"boot\":\"sentinel rung2 mic-listen v1\",\"mic_pin\":32}");
+  IrReceiver.begin(IR, DISABLE_LED_FEEDBACK);
+  emit('D', "{\"boot\":\"sentinel sensor-check v1\",\"mic\":32,\"radar\":27,\"ir\":4}");
 }
 
 void loop() {
-  // Integrate the envelope: peak-to-peak of fast samples over WIN_MS = loudness.
-  int lo = 4095, hi = 0;
-  const uint32_t t0 = millis();
-  while (millis() - t0 < WIN_MS) {
-    int v = analogRead(MIC);
-    if (v < lo) lo = v;
-    if (v > hi) hi = v;
-  }
-  const int level = hi - lo;
-
-  if (baseline == 0) baseline = level;
-  baseline = 0.98f * baseline + 0.02f * level;      // slow adapt to ambient
-  const int thresh = (int)baseline + 120;           // software margin (Q3 tuning)
-  const bool nowLoud = level > thresh;
   const uint32_t now = millis();
 
-  if (nowLoud && !loud) {
-    loud = true; loudCount++; digitalWrite(LED, 1);
-    emit('E', String("{\"s\":\"sound\",\"loud\":1,\"lvl\":") + level +
-                  ",\"base\":" + (int)baseline + "}");
-  } else if (!nowLoud && loud) {
-    loud = false; digitalWrite(LED, 0);
-    emit('E', String("{\"s\":\"sound\",\"loud\":0,\"lvl\":") + level + "}");
+  // --- mic loudness (peak-to-peak over a window; software threshold) ---
+  int lo = 4095, hi = 0; uint32_t t0 = millis();
+  while (millis() - t0 < WIN_MS) { int v = analogRead(MIC); if (v < lo) lo = v; if (v > hi) hi = v; }
+  const int level = hi - lo;
+  if (baseline == 0) baseline = level;
+  baseline = 0.98f * baseline + 0.02f * level;
+  const int thresh = (int)baseline + 120;
+  const bool nowLoud = level > thresh;
+  if (nowLoud && !loud) { loud = true; loudCount++;
+    emit('E', String("{\"s\":\"sound\",\"loud\":1,\"lvl\":") + level + "}"); }
+  else if (!nowLoud && loud) { loud = false;
+    emit('E', String("{\"s\":\"sound\",\"loud\":0,\"lvl\":") + level + "}"); }
+
+  // --- radar motion ---
+  const bool r = digitalRead(RADAR);
+  if (r != lastRadar && now - tRadar >= DEBOUNCE_MS) {
+    lastRadar = r; tRadar = now; if (r) motionCount++;
+    emit('E', String("{\"s\":\"radar\",\"motion\":") + (r ? 1 : 0) + "}");
   }
 
+  // --- IR remote (NEC) ---
+  if (IrReceiver.decode()) {
+    if (IrReceiver.decodedIRData.protocol != UNKNOWN &&
+        !(IrReceiver.decodedIRData.flags & IRDATA_FLAGS_IS_REPEAT)) {
+      emit('E', String("{\"s\":\"ir\",\"cmd\":") + IrReceiver.decodedIRData.command +
+                     ",\"addr\":" + IrReceiver.decodedIRData.address + "}");
+    }
+    IrReceiver.resume();
+  }
+
+  // --- telemetry ---
   if (now - tTelem >= TELEM_MS) {
     tTelem = now;
     emit('T', String("{\"lvl\":") + level + ",\"base\":" + (int)baseline +
-                    ",\"th\":" + thresh + ",\"lc\":" + loudCount +
-                    ",\"up\":" + (now / 1000) + "}");
+                    ",\"radar\":" + (r ? 1 : 0) + ",\"lc\":" + loudCount +
+                    ",\"mc\":" + motionCount + ",\"up\":" + (now / 1000) + "}");
   }
+
+  // --- heartbeat LED: short flash every 5 s ---
+  if (now - tBlink >= 5000) { tBlink = now; digitalWrite(LED, HIGH); ledOn = true; ledOffAt = now + 60; }
+  if (ledOn && (int32_t)(now - ledOffAt) >= 0) { digitalWrite(LED, LOW); ledOn = false; }
 }
