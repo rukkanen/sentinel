@@ -9,15 +9,25 @@
 // itself going up: sentinel_health absent→up is this stage's whole acceptance test.
 #include <Arduino.h>
 
+#include "channels.h"
 #include "commands.h"
 #include "pins.h"
+#include "registry.h"
 #include "sentlink.h"
 #include "transport.h"
 #include "wire.h"
 
 using namespace sentlink;
 
-static const char* FW_VERSION = "0.2.0";
+static const char* FW_VERSION = "0.3.0";
+
+// ---- sensor registry (Stage 3): a new sensor = one channel object + one add() ----
+static sentsensors::Registry g_sensors;
+static sentsensors::UltraChannel g_ultra;
+static sentsensors::RadarChannel g_radar;   // .wired stays false until GPIO27 is proven live
+
+static const uint32_t ULTRA_PERIOD_MS = 120;   // ~8 Hz ping
+static const uint32_t TELEM_PERIOD_MS = 500;   // 2 Hz comprehensive T frame
 
 static void serial_sink(const char* frame, size_t n, void*) {
   Serial.write((const uint8_t*)frame, n);
@@ -71,10 +81,32 @@ static void handle_frame(Frame& f, uint32_t now) {
 }
 
 void setup() {
+  g_ctx.fw = FW_VERSION;                 // keep describe's fw in lockstep with the heartbeat's
   pinMode(pins::LED, OUTPUT);
+  pinMode(pins::ULTRA_TRIG, OUTPUT);
+  digitalWrite(pins::ULTRA_TRIG, LOW);
+  pinMode(pins::ULTRA_ECHO, INPUT);
+  pinMode(pins::RADAR_OUT, INPUT);
+  g_sensors.add(&g_ultra);
+  g_sensors.add(&g_radar);
   Serial.begin(115200);
   delay(50);
-  g_tp.send_event("{\"s\":\"boot\",\"sev\":0,\"sum\":\"sentinel_module fw " "0.2.0" " up\",\"up_ms\":0}");
+  g_tp.send_event("{\"s\":\"boot\",\"sev\":0,\"sum\":\"sentinel_module fw 0.3.0 up\",\"up_ms\":0}");
+}
+
+static void poll_sensors(uint32_t now) {
+  static uint32_t tPing = 0;
+  if (now - tPing >= ULTRA_PERIOD_MS) {
+    tPing = now;
+    digitalWrite(pins::ULTRA_TRIG, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(pins::ULTRA_TRIG, LOW);
+    // Blocks ≤25 ms worst-case; acceptable at this stage (RX buffer holds ~256 B ≈ 22 ms
+    // and the Pi speaks rarely). The ISR-timestamp upgrade is Stage 7 hardening.
+    const uint32_t us = pulseIn(pins::ULTRA_ECHO, HIGH, 25000);
+    g_ultra.logic.feed(us, now);
+  }
+  if (g_radar.wired) g_radar.logic.feed(digitalRead(pins::RADAR_OUT) == HIGH, now);
 }
 
 void loop() {
@@ -109,6 +141,17 @@ void loop() {
              (unsigned long)now, FW_VERSION);
     g_tp.send_heartbeat(p);
   }
+
+  // Sensors: poll, stream T at 2 Hz, fire events as they surface (Stage 3).
+  poll_sensors(now);
+  static uint32_t tTelem = 0;
+  if (now - tTelem >= TELEM_PERIOD_MS) {
+    tTelem = now;
+    char t[MAX_PAYLOAD];
+    if (g_sensors.build_telemetry(now, t, sizeof(t))) g_tp.send_telemetry(t);
+  }
+  char ev[MAX_PAYLOAD];
+  if (g_sensors.next_event(ev, sizeof(ev), now)) g_tp.send_event(ev);
 
   g_tp.tick(now);   // reliable-B retransmits (the backlog rides this from Stage 6)
 }

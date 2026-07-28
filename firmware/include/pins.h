@@ -18,4 +18,8 @@ constexpr int MIC_I2S_SD  = 32;   // DATA  (audio, mic → ESP32)
 constexpr int RADAR_OUT = 27;
 constexpr int IR_RX     = 4;
 constexpr int LED       = 2;
+
+// Ultrasonic ranger (HC-SR04, bot's TIP at 8 cm height, VCC 3V3 — proven live S81d).
+constexpr int ULTRA_TRIG = 26;   // output: 10 µs ping
+constexpr int ULTRA_ECHO = 34;   // input-only pin — echo pulse width (no 5 V here without a divider!)
 }  // namespace pins
