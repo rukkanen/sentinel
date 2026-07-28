@@ -8,6 +8,9 @@
 // then telemetry is honest by ABSENCE (no fake channels), and the dashboard shows the link
 // itself going up: sentinel_health absent→up is this stage's whole acceptance test.
 #include <Arduino.h>
+#include <I2S.h>
+#define DECODE_NEC
+#include <IRremote.hpp>
 
 #include "channels.h"
 #include "commands.h"
@@ -25,6 +28,9 @@ static const char* FW_VERSION = "0.3.0";
 static sentsensors::Registry g_sensors;
 static sentsensors::UltraChannel g_ultra;
 static sentsensors::RadarChannel g_radar;   // .wired stays false until GPIO27 is proven live
+static sentsensors::LoudChannel g_loud;     // INMP441 I2S, Tier-A: levels only, never audio
+static sentsensors::IrChannel g_ir;
+static bool g_i2s_ok = false;
 
 static const uint32_t ULTRA_PERIOD_MS = 120;   // ~8 Hz ping
 static const uint32_t TELEM_PERIOD_MS = 500;   // 2 Hz comprehensive T frame
@@ -89,6 +95,12 @@ void setup() {
   pinMode(pins::RADAR_OUT, INPUT);
   g_sensors.add(&g_ultra);
   g_sensors.add(&g_radar);
+  g_sensors.add(&g_loud);
+  g_sensors.add(&g_ir);
+  // INMP441 over I2S: 16 kHz, 32-bit slots (the mic delivers 24-bit left-justified).
+  I2S.setAllPins(pins::MIC_I2S_SCK, pins::MIC_I2S_WS, pins::MIC_I2S_SD, -1, pins::MIC_I2S_SD);
+  g_i2s_ok = I2S.begin(I2S_PHILIPS_MODE, 16000, 32);
+  IrReceiver.begin(pins::IR_RX, DISABLE_LED_FEEDBACK);
   Serial.begin(115200);
   delay(50);
   g_tp.send_event("{\"s\":\"boot\",\"sev\":0,\"sum\":\"sentinel_module fw 0.3.0 up\",\"up_ms\":0}");
@@ -107,6 +119,64 @@ static void poll_sensors(uint32_t now) {
     g_ultra.logic.feed(us, now);
   }
   if (g_radar.wired) g_radar.logic.feed(digitalRead(pins::RADAR_OUT) == HIGH, now);
+
+  // Tier-A loudness: drain whatever I2S has buffered, RMS -> dB(rel), feed the logic.
+  // Raw samples never leave this function (D-S2: levels, never audio content).
+  if (g_i2s_ok && !g_loud.muted) {
+    static int32_t buf[256];
+    static uint32_t tWin = 0;
+    static double acc = 0; static uint32_t nAcc = 0;
+    static float dc = 0;                              // running DC offset (INMP441 has one;
+    int bytes = I2S.available() ? I2S.read(buf, sizeof(buf)) : 0;   // without removal RMS is a lie)
+    if (bytes > 0) {
+      const int ns = bytes / 4;
+      for (int i = 0; i < ns; i += 2) {   // LEFT slot only (L/R->GND); right slot is junk
+        const float raw = (float)(buf[i] >> 8);       // 24-bit sample
+        dc += 0.0005f * (raw - dc);                   // slow high-pass
+        const float v = raw - dc;
+        acc += (double)v * v;
+        nAcc++;
+      }
+    }
+    if (now - tWin >= 100 && nAcc > 64) {             // ~10 windows/s
+      tWin = now;
+      const float rms = sqrtf((float)(acc / nAcc));
+      acc = 0; nAcc = 0;
+      // dB relative scale: 0 = silence floor, ~95 = full-scale 24-bit
+      const float db = rms > 1 ? 20.0f * log10f(rms / 8388608.0f) + 95.0f : 0.0f;
+      g_loud.logic.feed_db(db < 0 ? 0 : db, now);
+    }
+  }
+
+  // IR remote (Stage 5): decoded NEC press -> named button + local actions.
+  if (IrReceiver.decode()) {
+    const auto& d = IrReceiver.decodedIRData;
+    if (d.protocol == NEC && !(d.flags & IRDATA_FLAGS_IS_REPEAT)) {
+      const uint8_t cmd = d.command;
+      const char* name =
+        cmd == 0x45 ? "power" : cmd == 0x46 ? "mode"  : cmd == 0x47 ? "mute"  :
+        cmd == 0x44 ? "play"  : cmd == 0x40 ? "prev"  : cmd == 0x43 ? "next"  :
+        cmd == 0x07 ? "eq"    : cmd == 0x15 ? "vol-"  : cmd == 0x09 ? "vol+"  :
+        cmd == 0x19 ? "cycle" : cmd == 0x0D ? "usd"   : "btn";
+      g_ir.press(cmd, name, now);
+      if (cmd == 0x47) {                              // hardware-true mic mute toggle
+        g_loud.muted = !g_loud.muted;
+        char e[120];
+        snprintf(e, sizeof(e),
+                 "{\"s\":\"mic\",\"sev\":0,\"sum\":\"microphone %s (IR remote)\",\"up_ms\":%lu}",
+                 g_loud.muted ? "MUTED" : "unmuted", (unsigned long)now);
+        g_tp.send_event(e);
+      } else if (cmd == 0x44) {                       // AV-snap request (Pi decides + acts)
+        char e[130];
+        snprintf(e, sizeof(e),
+                 "{\"s\":\"av_snap_req\",\"sev\":1,\"sum\":\"AV snap requested (remote)\",\"up_ms\":%lu}",
+                 (unsigned long)now);
+        g_tp.send_event(e);
+      }
+    }
+    IrReceiver.resume();
+  }
+  g_ir.age(now);
 }
 
 void loop() {
