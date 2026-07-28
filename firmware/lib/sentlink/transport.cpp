@@ -17,6 +17,8 @@ uint32_t Transport::emit(Type type, const char* payload) {
 uint32_t Transport::send_event(const char* p)     { return emit(Type::Event, p); }
 uint32_t Transport::send_telemetry(const char* p) { return emit(Type::Telemetry, p); }
 uint32_t Transport::send_heartbeat(const char* p) { return emit(Type::Heartbeat, p); }
+uint32_t Transport::send_ack(const char* p)       { return emit(Type::Ack, p); }
+uint32_t Transport::send_nack(const char* p)      { return emit(Type::Nack, p); }
 
 uint32_t Transport::send_data(const char* payload, uint32_t now_ms) {
   int idx = -1;

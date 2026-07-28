@@ -36,6 +36,11 @@ class Transport {
   // Reliable. Emits once now and tracks for ACK. Returns seq, or 0 if the outbox is full.
   uint32_t send_data(const char* payload, uint32_t now_ms);
 
+  // Fire-fast R/N answering a Pi command — the TARGET seq rides in the payload
+  // ({"ack":<C seq>}), the frame's own seq is just the next in our stream (SENT-025).
+  uint32_t send_ack(const char* payload);
+  uint32_t send_nack(const char* payload);
+
   void on_ack(uint32_t seq);                 // clears the acked frame from the outbox
   void on_nack(uint32_t seq, uint32_t now_ms);  // immediate retransmit of that frame
 

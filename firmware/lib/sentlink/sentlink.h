@@ -30,7 +30,7 @@ constexpr size_t MAX_PAYLOAD = 200;
 constexpr size_t MAX_FRAME = 1 + 1 + 10 + 1 + MAX_PAYLOAD + 1 + CRC_HEX + 1 + 1;  // +\n +NUL
 
 enum class Type : char {
-  Event     = 'E',  // interrupt-style notifier — low latency, best-effort + acked
+  Event     = 'E',  // interrupt-style notifier — low latency, best-effort (NOT acked; recovery = the backlog)
   Telemetry = 'T',  // periodic comprehensive frame (curator rolling stats)
   Heartbeat = 'H',  // liveness + rolling health
   Ack       = 'R',  // response / positive ack
