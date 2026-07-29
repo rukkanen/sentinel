@@ -35,7 +35,7 @@ size_t handle_command(const char* payload, uint32_t cmd_seq, uint32_t now_ms,
     // report honestly via telemetry/health; describe declares the *driver* roster.
     return fmt(out, cap,
                "{\"ack\":%lu,\"fw\":\"%s\",\"proto\":%d,"
-               "\"sensors\":[\"loud\",\"radar\",\"ir\",\"range\"]}",
+               "\"sensors\":[\"loud\",\"radar\",\"ir\",\"range\",\"temp\",\"pir\",\"wifi\"]}",
                (unsigned long)cmd_seq, ctx.fw, ctx.proto);
   }
   if (strcmp(cmd, "set_clock") == 0) {

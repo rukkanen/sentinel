@@ -169,6 +169,108 @@ static void test_ir_channel_press_event(void) {
   TEST_ASSERT_EQUAL_size_t(0, c.telemetry_frag(buf, sizeof(buf)));   // stale button ages out
 }
 
+// ---------------------------------------------------------------- DHT11 (Stage B1)
+static void test_dht_decode_and_checksum(void) {
+  float t, rh;
+  const uint8_t good[5] = {55, 0, 24, 3, 82};       // 55+0+24+3 = 82
+  TEST_ASSERT_TRUE(DhtLogic::decode(good, t, rh));
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 24.3f, t);
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 55.0f, rh);
+  const uint8_t bad_sum[5] = {55, 0, 24, 3, 83};
+  TEST_ASSERT_FALSE(DhtLogic::decode(bad_sum, t, rh));
+  const uint8_t absurd[5] = {99, 0, 90, 0, 189};    // checksum OK, values impossible for DHT11
+  TEST_ASSERT_FALSE(DhtLogic::decode(absurd, t, rh));
+}
+
+static void test_dht_freshness_and_failure_run(void) {
+  DhtLogic d;
+  const uint8_t good[5] = {40, 0, 21, 0, 61};
+  d.feed_frame(good, 1000);
+  TEST_ASSERT_TRUE(d.has_reading(2000));
+  TEST_ASSERT_FLOAT_WITHIN(0.05f, 21.0f, d.temp_c());
+  d.feed_fail(3000); d.feed_fail(5000);
+  TEST_ASSERT_TRUE(d.has_reading(5000));            // two fails: still trust the last value
+  d.feed_fail(7000);
+  TEST_ASSERT_FALSE(d.has_reading(7000));           // three in a row → honest silence
+  d.feed_frame(good, 8000);
+  TEST_ASSERT_TRUE(d.has_reading(8000));            // one good frame recovers
+  TEST_ASSERT_FALSE(d.has_reading(8000 + 31000));   // stale-out with no feeds at all
+}
+
+static void test_dht_channel_frag(void) {
+  DhtChannel c;
+  char buf[80];
+  TEST_ASSERT_EQUAL_size_t(0, c.telemetry_frag(buf, sizeof(buf)));   // nothing yet → silent
+  const uint8_t good[5] = {47, 0, 23, 5, 75};
+  c.logic.feed_frame(good, 1000);
+  c.now_ms = 1500;
+  TEST_ASSERT_TRUE(c.telemetry_frag(buf, sizeof(buf)) > 0);
+  TEST_ASSERT_EQUAL_STRING("\"temp_c\":23.5,\"rh\":47", buf);
+}
+
+// ---------------------------------------------------------------- PIR zones (Stage B1)
+static void test_pir_zones_debounce_episode_and_labels(void) {
+  PirChannel c;                                     // debounce 120ms, episode gap 8s
+  const int front = c.add_zone("front", true);
+  const int rear = c.add_zone("rear", true);
+  const int dark = c.add_zone("left", false);       // NOT wired → must stay silent
+  TEST_ASSERT_TRUE(front >= 0 && rear >= 0 && dark >= 0);
+  char buf[160];
+  TEST_ASSERT_EQUAL_size_t(0, c.telemetry_frag(buf, sizeof(buf)));   // all quiet → silent
+
+  c.feed(front, true, 0);
+  c.feed(front, true, 60);
+  TEST_ASSERT_EQUAL_size_t(0, c.next_event(buf, sizeof(buf), 70));   // not held long enough
+  c.feed(front, true, 130);                          // held ≥120ms → motion
+  TEST_ASSERT_TRUE(c.next_event(buf, sizeof(buf), 140) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"s\":\"pir\""));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "front"));
+  TEST_ASSERT_EQUAL_size_t(0, c.next_event(buf, sizeof(buf), 150));  // one per episode
+
+  c.feed(rear, true, 200); c.feed(rear, true, 330);  // second zone fires its own event
+  TEST_ASSERT_TRUE(c.next_event(buf, sizeof(buf), 340) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "rear"));
+
+  TEST_ASSERT_TRUE(c.telemetry_frag(buf, sizeof(buf)) > 0);          // both active
+  TEST_ASSERT_EQUAL_STRING("\"pir\":\"front+rear\"", buf);
+
+  c.feed(dark, true, 400); c.feed(dark, true, 600);  // unwired zone: no frag, no event
+  TEST_ASSERT_EQUAL_size_t(0, c.next_event(buf, sizeof(buf), 610));
+  c.telemetry_frag(buf, sizeof(buf));
+  TEST_ASSERT_NULL(strstr(buf, "left"));
+}
+
+// ---------------------------------------------------------------- WiFi survey (Stage B1)
+static void test_wifi_survey_frag_and_change_event(void) {
+  WifiChannel c;
+  char buf[200];
+  TEST_ASSERT_EQUAL_size_t(0, c.telemetry_frag(buf, sizeof(buf)));   // no survey yet → silent
+
+  c.logic.begin(1000);
+  c.logic.add_ap(0xAABBCCDDEE01ULL, -50);
+  c.logic.add_ap(0xAABBCCDDEE02ULL, -62);
+  c.logic.add_ap(0xAABBCCDDEE03ULL, -71);
+  c.logic.commit(1000);
+  TEST_ASSERT_EQUAL_size_t(0, c.next_event(buf, sizeof(buf), 1100)); // first survey = baseline
+  TEST_ASSERT_TRUE(c.telemetry_frag(buf, sizeof(buf)) > 0);
+  TEST_ASSERT_EQUAL_STRING("\"wap\":3,\"wrssi\":-50", buf);
+
+  c.logic.begin(61000);                              // same world → no event
+  c.logic.add_ap(0xAABBCCDDEE01ULL, -51);
+  c.logic.add_ap(0xAABBCCDDEE02ULL, -60);
+  c.logic.add_ap(0xAABBCCDDEE03ULL, -73);
+  c.logic.commit(61000);
+  TEST_ASSERT_EQUAL_size_t(0, c.next_event(buf, sizeof(buf), 61100));
+
+  c.logic.begin(121000);                             // 2 vanished + 1 appeared → changed
+  c.logic.add_ap(0xAABBCCDDEE01ULL, -50);
+  c.logic.add_ap(0xAABBCCDDEE99ULL, -55);
+  c.logic.commit(121000);
+  TEST_ASSERT_TRUE(c.next_event(buf, sizeof(buf), 121100) > 0);
+  TEST_ASSERT_NOT_NULL(strstr(buf, "\"s\":\"wifi\""));
+  TEST_ASSERT_NOT_NULL(strstr(buf, "radio environment changed"));
+}
+
 int main(int, char**) {
   UNITY_BEGIN();
   RUN_TEST(test_loud_baseline_learns_only_quiet);
@@ -183,5 +285,10 @@ int main(int, char**) {
   RUN_TEST(test_registry_silent_when_no_driver_speaks);
   RUN_TEST(test_registry_bounded);
   RUN_TEST(test_registry_drains_events_round_robin);
+  RUN_TEST(test_dht_decode_and_checksum);
+  RUN_TEST(test_dht_freshness_and_failure_run);
+  RUN_TEST(test_dht_channel_frag);
+  RUN_TEST(test_pir_zones_debounce_episode_and_labels);
+  RUN_TEST(test_wifi_survey_frag_and_change_event);
   return UNITY_END();
 }

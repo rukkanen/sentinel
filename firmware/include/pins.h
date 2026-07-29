@@ -22,4 +22,14 @@ constexpr int LED       = 2;
 // Ultrasonic ranger (HC-SR04, bot's TIP at 8 cm height, VCC 3V3 — proven live S81d).
 constexpr int ULTRA_TRIG = 26;   // output: 10 µs ping
 constexpr int ULTRA_ECHO = 34;   // input-only pin — echo pulse width (no 5 V here without a divider!)
+
+// DHT11 temp+humidity (prompt 24 B1, module in owner's hand — wire DATA here, VCC 3V3).
+constexpr int DHT_DATA = 16;
+
+// HC-SR501 PIR zones (prompt 24 Q-D0b): one pin per direction, identity = motion bearing.
+// VCC 5 V (onboard regulator; OUT is 3V3 logic). 35/36/39 are input-only — perfect here.
+constexpr int PIR_FRONT = 33;
+constexpr int PIR_REAR  = 35;
+constexpr int PIR_LEFT  = 36;    // "VP"
+constexpr int PIR_RIGHT = 39;    // "VN"
 }  // namespace pins

@@ -9,6 +9,7 @@
 // itself going up: sentinel_health absent→up is this stage's whole acceptance test.
 #include <Arduino.h>
 #include <I2S.h>
+#include <WiFi.h>
 #define DECODE_NEC
 #include <IRremote.hpp>
 
@@ -22,7 +23,7 @@
 
 using namespace sentlink;
 
-static const char* FW_VERSION = "0.3.0";
+static const char* FW_VERSION = "0.4.0";
 
 // ---- sensor registry (Stage 3): a new sensor = one channel object + one add() ----
 static sentsensors::Registry g_sensors;
@@ -30,10 +31,17 @@ static sentsensors::UltraChannel g_ultra;
 static sentsensors::RadarChannel g_radar;   // .wired stays false until GPIO27 is proven live
 static sentsensors::LoudChannel g_loud;     // INMP441 I2S, Tier-A: levels only, never audio
 static sentsensors::IrChannel g_ir;
+static sentsensors::DhtChannel g_dht;       // DHT11 GPIO16 — self-detecting (checksum),
+static sentsensors::PirChannel g_pir;       //   silent until wired. PIR zones ship
+static sentsensors::WifiChannel g_wifi;     //   .wired=false; WiFi survey needs no wiring.
+static int g_pir_zone[4] = {-1, -1, -1, -1};
+static const int PIR_PINS[4] = {pins::PIR_FRONT, pins::PIR_REAR, pins::PIR_LEFT, pins::PIR_RIGHT};
 static bool g_i2s_ok = false;
 
 static const uint32_t ULTRA_PERIOD_MS = 120;   // ~8 Hz ping
 static const uint32_t TELEM_PERIOD_MS = 500;   // 2 Hz comprehensive T frame
+static const uint32_t DHT_PERIOD_MS   = 5000;  // DHT11 max rate is ~1 Hz; 0.2 Hz is plenty
+static const uint32_t WIFI_PERIOD_MS  = 60000; // passive survey each minute (listen-only)
 
 static void serial_sink(const char* frame, size_t n, void*) {
   Serial.write((const uint8_t*)frame, n);
@@ -93,18 +101,36 @@ void setup() {
   digitalWrite(pins::ULTRA_TRIG, LOW);
   pinMode(pins::ULTRA_ECHO, INPUT);
   pinMode(pins::RADAR_OUT, INPUT);
+  pinMode(pins::DHT_DATA, INPUT_PULLUP);
+  for (int i = 0; i < 4; i++) pinMode(PIR_PINS[i], INPUT);
   g_sensors.add(&g_ultra);
   g_sensors.add(&g_radar);
   g_sensors.add(&g_loud);
   g_sensors.add(&g_ir);
+  g_sensors.add(&g_dht);
+  g_sensors.add(&g_pir);
+  g_sensors.add(&g_wifi);
+  // PIR zones: labels are the motion BEARING (Q-D0b). Flip wired=true as each is soldered.
+  g_pir_zone[0] = g_pir.add_zone("front", false);
+  g_pir_zone[1] = g_pir.add_zone("rear", false);
+  g_pir_zone[2] = g_pir.add_zone("left", false);
+  g_pir_zone[3] = g_pir.add_zone("right", false);
+  // WiFi survey: STA mode, never associates, passive scans only (listens to beacons).
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true);
   // INMP441 over I2S: 16 kHz, 32-bit slots (the mic delivers 24-bit left-justified).
   I2S.setAllPins(pins::MIC_I2S_SCK, pins::MIC_I2S_WS, pins::MIC_I2S_SD, -1, pins::MIC_I2S_SD);
   g_i2s_ok = I2S.begin(I2S_PHILIPS_MODE, 16000, 32);
   IrReceiver.begin(pins::IR_RX, DISABLE_LED_FEEDBACK);
   Serial.begin(115200);
   delay(50);
-  g_tp.send_event("{\"s\":\"boot\",\"sev\":0,\"sum\":\"sentinel_module fw 0.3.0 up\",\"up_ms\":0}");
+  char boot_ev[110];
+  snprintf(boot_ev, sizeof(boot_ev),
+           "{\"s\":\"boot\",\"sev\":0,\"sum\":\"sentinel_module fw %s up\",\"up_ms\":0}", FW_VERSION);
+  g_tp.send_event(boot_ev);
 }
+
+static void dht_read(uint32_t now);
 
 static void poll_sensors(uint32_t now) {
   static uint32_t tPing = 0;
@@ -177,6 +203,77 @@ static void poll_sensors(uint32_t now) {
     IrReceiver.resume();
   }
   g_ir.age(now);
+
+  // PIR zones (B1): plain digital reads; feed() itself ignores unwired zones.
+  for (int i = 0; i < 4; i++)
+    if (g_pir_zone[i] >= 0)
+      g_pir.feed(g_pir_zone[i], digitalRead(PIR_PINS[i]) == HIGH, now);
+
+  // DHT11 (B1): bit-banged single-wire read every 5 s. Interrupts are off ~4 ms during
+  // the 40-bit burst (I2S is DMA-fed and the UART FIFO holds ~50 B at 115200 — both fine).
+  static uint32_t tDht = 0;
+  if (now - tDht >= DHT_PERIOD_MS) {
+    tDht = now;
+    dht_read(now);
+  }
+  g_dht.now_ms = now;
+
+  // WiFi survey (B1): async passive scan each minute; harvest when the radio is done.
+  static uint32_t tWifi = 0;
+  static bool scanning = false;
+  if (!scanning && now - tWifi >= WIFI_PERIOD_MS) {
+    tWifi = now;
+    WiFi.scanNetworks(true /*async*/, false /*hidden*/, true /*passive: listen only*/, 300);
+    scanning = true;
+  }
+  if (scanning) {
+    const int16_t nf = WiFi.scanComplete();
+    if (nf >= 0) {
+      g_wifi.logic.begin(now);
+      for (int16_t i = 0; i < nf; i++) {
+        const uint8_t* b = WiFi.BSSID(i);
+        uint64_t id = 0;
+        if (b) for (int k = 0; k < 6; k++) id = (id << 8) | b[k];
+        g_wifi.logic.add_ap(id, WiFi.RSSI(i));
+      }
+      g_wifi.logic.commit(now);
+      WiFi.scanDelete();
+      scanning = false;
+    } else if (nf == WIFI_SCAN_FAILED) {
+      scanning = false;                                // try again next minute
+    }
+  }
+}
+
+// DHT11 single-wire read: host start pulse, then 40 bits timed by high-pulse width.
+// All timing raw; the portable DhtLogic judges checksum + plausibility + freshness.
+static void dht_read(uint32_t now) {
+  uint8_t data[5] = {0, 0, 0, 0, 0};
+  pinMode(pins::DHT_DATA, OUTPUT);
+  digitalWrite(pins::DHT_DATA, LOW);
+  delay(20);                                           // ≥18 ms start signal
+  noInterrupts();
+  pinMode(pins::DHT_DATA, INPUT_PULLUP);
+  delayMicroseconds(40);
+  // sensor response: ~80 µs LOW then ~80 µs HIGH, then 40 bits
+  auto wait_level = [](int level, uint32_t timeout_us) -> bool {
+    const uint32_t t0 = micros();
+    while (digitalRead(pins::DHT_DATA) != level)
+      if (micros() - t0 > timeout_us) return false;
+    return true;
+  };
+  bool ok = wait_level(LOW, 90) && wait_level(HIGH, 100) && wait_level(LOW, 100);
+  if (ok) {
+    for (int i = 0; i < 40 && ok; i++) {
+      if (!wait_level(HIGH, 70)) { ok = false; break; }   // 50 µs low preamble per bit
+      const uint32_t t0 = micros();
+      if (!wait_level(LOW, 90)) { ok = false; break; }    // high width: ~27 µs=0, ~70 µs=1
+      if (micros() - t0 > 45) data[i / 8] |= (uint8_t)(0x80 >> (i % 8));
+    }
+  }
+  interrupts();
+  if (ok) g_dht.logic.feed_frame(data, now);             // decode judges checksum/plausibility
+  else    g_dht.logic.feed_fail(now);                    // absent sensor times out in ~0.3 ms
 }
 
 void loop() {
